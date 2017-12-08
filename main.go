@@ -4,18 +4,58 @@ import (
     "net"
     "log"
     "bufio"
+    "strings"
+    "strconv"
 )
 
-type database struct {
+type cache struct {
+    storage map[string]string
 }
 
-type command struct {
-    command string
+type command interface {
+    apply(c *cache)
+}
+
+type command_data struct {
+    args []string
     c chan string
 }
 
-func (d* database) get(key string) string {
-    return key
+type get_command struct {
+    *command_data
+}
+
+type set_command struct {
+    *command_data
+}
+
+func (c *get_command) apply(cc *cache) {
+    value := cc.get(c.args[0])
+    if value != "" {
+        c.c <- string("$" + strconv.Itoa(len(value)) + "\r\n" + value + "\r\n")
+    } else {
+        c.c <- "$-1\r\n"
+    }
+}
+
+func (c *set_command) apply(cc *cache) {
+    cc.set(c.args[0], c.args[1])
+    c.c <- "+OK\r\n"
+}
+
+func (c *cache) get(key string) string {
+    if val, ok := c.storage[key]; ok {
+        return val
+    }
+    return ""
+}
+
+func (c * cache) set(key string, value string) {
+    log.Println("set ", key)
+    c.storage[key] = value
+
+    val, ok := c.storage[key]
+    log.Println("set ", val, ok)
 }
 
 func main() {
@@ -27,17 +67,17 @@ func main() {
     defer listener.Close()
 
     db_control := make(chan command)
-    go access_database(db_control)
+    go manage_cache(db_control)
 
     log.Print("Listening incoming connections on ", endpoint)
     accept_connections(listener, db_control)
 }
 
-func access_database(c chan command) {
-    database := &database{}
+func manage_cache(c chan command) {
+    cache := &cache{storage: make(map[string]string)}
     for {
         cmd := <-c
-        cmd.c <- database.get(cmd.command)
+        cmd.apply(cache)
     }
 }
 
@@ -61,13 +101,43 @@ func handle_connection(conn net.Conn, c chan command) {
     reader := bufio.NewReader(conn)
 
     for {
-        cmd, err := reader.ReadString('\n')
+        request, err := reader.ReadString('\n')
+        request = strings.Trim(request, "\r\n")
         if err != nil {
             break
         }
-        c <- command{cmd, feedback}
-        response := <-feedback
-        conn.Write([]byte(response))
+
+        dat := &command_data{c: feedback}
+        cmd := parse_command(request, dat)
+        if cmd != nil {
+            c <- cmd
+            response := <-feedback
+            conn.Write([]byte(response))
+        } else {
+            log.Print("Unexpected command ", request)
+        }
+
     }
 }
+
+func parse_command(line string, dat *command_data) command {
+    tokens := strings.Split(line, " ")
+    if len(tokens) > 0 {
+        switch tokens[0] {
+        case "get":
+            dat.args = tokens[1:]
+            cmd := &get_command{}
+            cmd.command_data = dat
+            return cmd
+        case "set":
+            dat.args = tokens[1:]
+            cmd := &set_command{}
+            cmd.command_data = dat
+            return cmd
+        }
+    }
+
+    return nil
+}
+
 
