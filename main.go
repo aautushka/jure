@@ -29,6 +29,10 @@ type set_command struct {
     *command_data
 }
 
+type del_command struct {
+    *command_data
+}
+
 func (c *get_command) apply(cc *cache) {
     value := cc.get(c.args[0])
     if value != "" {
@@ -41,6 +45,14 @@ func (c *get_command) apply(cc *cache) {
 func (c *set_command) apply(cc *cache) {
     cc.set(c.args[0], c.args[1])
     c.c <- "+OK\r\n"
+}
+
+func (c *del_command) apply(cc *cache) {
+    if cc.del(c.args[0]) {
+        c.c <- ":1\r\n"
+    } else {
+        c.c <- ":0\r\n"
+    }
 }
 
 func (c *cache) get(key string) string {
@@ -56,6 +68,11 @@ func (c * cache) set(key string, value string) {
 
     val, ok := c.storage[key]
     log.Println("set ", val, ok)
+}
+
+func (c * cache) del(key string) bool {
+    delete(c.storage, key)
+    return true
 }
 
 func main() {
@@ -132,6 +149,11 @@ func parse_command(line string, dat *command_data) command {
         case "set":
             dat.args = tokens[1:]
             cmd := &set_command{}
+            cmd.command_data = dat
+            return cmd
+        case "del":
+            dat.args = tokens[1:]
+            cmd := &del_command{}
             cmd.command_data = dat
             return cmd
         }
