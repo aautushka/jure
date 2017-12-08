@@ -33,6 +33,10 @@ type del_command struct {
     *command_data
 }
 
+type exists_command struct {
+    *command_data
+}
+
 func (c *get_command) apply(cc *cache) {
     value := cc.get(c.args[0])
     if value != "" {
@@ -55,6 +59,14 @@ func (c *del_command) apply(cc *cache) {
     }
 }
 
+func (c *exists_command) apply(cc *cache) {
+    if cc.exists(c.args[0]) {
+        c.c <- "$1\r\n"
+    } else {
+        c.c <- "$0\r\n"
+    }
+}
+
 func (c *cache) get(key string) string {
     if val, ok := c.storage[key]; ok {
         return val
@@ -62,7 +74,7 @@ func (c *cache) get(key string) string {
     return ""
 }
 
-func (c * cache) set(key string, value string) {
+func (c *cache) set(key string, value string) {
     log.Println("set ", key)
     c.storage[key] = value
 
@@ -70,9 +82,17 @@ func (c * cache) set(key string, value string) {
     log.Println("set ", val, ok)
 }
 
-func (c * cache) del(key string) bool {
+func (c *cache) del(key string) bool {
     delete(c.storage, key)
     return true
+}
+
+func (c *cache) exists(key string) bool {
+    if _, ok := c.storage[key]; ok {
+        return true
+    } else {
+        return false
+    }
 }
 
 func main() {
@@ -154,6 +174,11 @@ func parse_command(line string, dat *command_data) command {
         case "del":
             dat.args = tokens[1:]
             cmd := &del_command{}
+            cmd.command_data = dat
+            return cmd
+        case "exists":
+            dat.args = tokens[1:]
+            cmd := &exists_command{}
             cmd.command_data = dat
             return cmd
         }
