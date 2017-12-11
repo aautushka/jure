@@ -37,6 +37,10 @@ type exists_command struct {
     *command_data
 }
 
+type append_command struct {
+    *command_data
+}
+
 func (c *get_command) apply(cc *cache) {
     value := cc.get(c.args[0])
     if value != "" {
@@ -67,6 +71,11 @@ func (c *exists_command) apply(cc *cache) {
     }
 }
 
+func (c *append_command) apply(cc *cache) {
+    new_length := cc.append(c.args[0], c.args[1])
+    c.c <- ":" + strconv.Itoa(new_length) + "\r\n"
+}
+
 func (c *cache) get(key string) string {
     if val, ok := c.storage[key]; ok {
         return val
@@ -93,6 +102,13 @@ func (c *cache) exists(key string) bool {
     } else {
         return false
     }
+}
+
+func (c *cache) append(key string, value string) int {
+    prev, _ := c.storage[key]
+    newval := prev + value
+    c.storage[key] = newval
+    return len(newval)
 }
 
 func main() {
@@ -179,6 +195,11 @@ func parse_command(line string, dat *command_data) command {
         case "exists":
             dat.args = tokens[1:]
             cmd := &exists_command{}
+            cmd.command_data = dat
+            return cmd
+        case "append":
+            dat.args = tokens[1:]
+            cmd := &append_command{}
             cmd.command_data = dat
             return cmd
         }
