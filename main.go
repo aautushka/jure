@@ -10,8 +10,22 @@ import (
     "runtime"
 )
 
+type object struct {
+    str string
+    arr []*object
+    dict *map[string]*object
+}
+
+func (o *object) set(value string) {
+    o.str = value
+}
+
+func (o *object) get() string {
+    return o.str
+}
+
 type shard struct {
-    storage map[string]string
+    storage map[string]*object
 }
 
 type cache struct {
@@ -84,17 +98,17 @@ func (c *append_command) apply(cc *cache) {
 
 func (c *shard) get(key string) string {
     if val, ok := c.storage[key]; ok {
-        return val
+        return val.get()
     }
     return ""
 }
 
 func (c *shard) set(key string, value string) {
-    log.Println("set ", key)
-    c.storage[key] = value
-
-    val, ok := c.storage[key]
-    log.Println("set ", val, ok)
+    if val, ok := c.storage[key]; ok {
+        val.set(value)
+    } else {
+        c.storage[key] = &object{ str : value };
+    }
 }
 
 func (c *shard) del(key string) bool {
@@ -112,8 +126,8 @@ func (c *shard) exists(key string) bool {
 
 func (c *shard) append(key string, value string) int {
     prev, _ := c.storage[key]
-    newval := prev + value
-    c.storage[key] = newval
+    newval := prev.get() + value
+    c.storage[key].set(newval)
     return len(newval)
 }
 
@@ -149,7 +163,7 @@ func (c* cache) get_shard(key string) *shard {
 }
 
 func make_shard() *shard {
-    return &shard{storage: make(map[string]string)}
+    return &shard{storage: make(map[string]*object)}
 }
 
 func make_cache_n(num_shards int) *cache {
