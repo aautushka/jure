@@ -6,10 +6,16 @@ import (
     "bufio"
     "strings"
     "strconv"
+    "hash/fnv"
+    "runtime"
 )
 
-type cache struct {
+type shard struct {
     storage map[string]string
+}
+
+type cache struct {
+    shards []*shard
 }
 
 type command interface {
@@ -76,14 +82,14 @@ func (c *append_command) apply(cc *cache) {
     c.c <- ":" + strconv.Itoa(new_length) + "\r\n"
 }
 
-func (c *cache) get(key string) string {
+func (c *shard) get(key string) string {
     if val, ok := c.storage[key]; ok {
         return val
     }
     return ""
 }
 
-func (c *cache) set(key string, value string) {
+func (c *shard) set(key string, value string) {
     log.Println("set ", key)
     c.storage[key] = value
 
@@ -91,12 +97,12 @@ func (c *cache) set(key string, value string) {
     log.Println("set ", val, ok)
 }
 
-func (c *cache) del(key string) bool {
+func (c *shard) del(key string) bool {
     delete(c.storage, key)
     return true
 }
 
-func (c *cache) exists(key string) bool {
+func (c *shard) exists(key string) bool {
     if _, ok := c.storage[key]; ok {
         return true
     } else {
@@ -104,11 +110,60 @@ func (c *cache) exists(key string) bool {
     }
 }
 
-func (c *cache) append(key string, value string) int {
+func (c *shard) append(key string, value string) int {
     prev, _ := c.storage[key]
     newval := prev + value
     c.storage[key] = newval
     return len(newval)
+}
+
+func (c *cache) set(key string, value string) {
+    c.get_shard(key).set(key, value)
+}
+
+func (c* cache) get(key string) string {
+    return c.get_shard(key).get(key)
+}
+
+func (c* cache) del(key string) bool {
+    return c.get_shard(key).del(key)
+}
+
+func (c* cache) exists(key string) bool {
+    return c.get_shard(key).exists(key)
+}
+
+func (c* cache) append(key string, value string) int {
+    return c.get_shard(key).append(key, value)
+}
+
+func hash(s string) uint32 {
+    h := fnv.New32a()
+    h.Write([]byte(s))
+    return h.Sum32()
+}
+
+func (c* cache) get_shard(key string) *shard {
+    num := hash(key) % uint32(len(c.shards))
+    return c.shards[num]
+}
+
+func make_shard() *shard {
+    return &shard{storage: make(map[string]string)}
+}
+
+func make_cache_n(num_shards int) *cache {
+    shards := make([]*shard, 0, num_shards)
+    for i := 0; i < 10; i++ {
+        s := make_shard()
+        shards = append(shards, s)
+    }
+    return &cache{shards: shards}
+}
+
+func make_cache() *cache {
+    num_cpu := runtime.NumCPU()
+    return make_cache_n(num_cpu + 1)
 }
 
 func main() {
@@ -127,7 +182,7 @@ func main() {
 }
 
 func manage_cache(c chan command) {
-    cache := &cache{storage: make(map[string]string)}
+    cache := make_cache()
     for {
         cmd := <-c
         cmd.apply(cache)
